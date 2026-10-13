@@ -1,234 +1,170 @@
 '''
-Algorithms for the pyenv runtime lab.
+Functions for measuring how CPython's runtimes (and in one case, its answers)
+have changed between versions.
 
-Every function in this file is small enough to be timed with
-`python3 -m timeit` on a single line.  The functions that take a
-size parameter n are meant to be called with n chosen so that the
-runtime lands in the 1e-6 to 1e-1 second range on a modern CPU.
-
-Doctests are deliberately omitted: the interesting behavior of
-these functions is in the runtime and (for a few of them) in the
-exact value they return, and neither of those is expressible in a
-doctest.
+Every function below takes exactly one argument.
+The `make_*` functions build the input data, and the other functions do the
+work that we actually want to time.
+Always build the data in timeit's setup code (the `-s` flag) so that you are
+measuring the work and not the data generation.
 '''
+
 import math
+import random
 import sys
 
 
-# The 3.11 release capped int<->str conversion at 4300 digits so
-# that the quadratic algorithm could not be used as a DoS vector;
-# 3.12 then replaced the algorithm with a subquadratic one.  Lift
-# the cap so the timings are visible.  (3.9 and 3.10 do not have
-# the cap, and so do not have the setter.)
-if hasattr(sys, 'set_int_max_str_digits'):
+# Python 3.9.14, 3.10.7, and every version after them refuse to convert between
+# very large ints and strings unless this limit is raised.  The limit exists to
+# prevent denial-of-service attacks (converting a 10**9 digit string used to be
+# an easy way to freeze a web server), and 0 means "no limit".
+# Older patch releases of 3.9/3.10 do not have this function at all.
+try:
     sys.set_int_max_str_digits(0)
+except AttributeError:
+    pass
 
 
-# ---------------------------------------------------------------------------
-# Baseline pure-Python loops
-# ---------------------------------------------------------------------------
-
-def loop_sum(n):
-    '''A trivial python-level loop.'''
-    s = 0
-    for i in range(n):
-        s += i
-    return s
+ALPHABET = 'abcdefghijklmnopqrstuvwxyz'
 
 
-def fib_rec(n):
+################################################################################
+# substring search
+################################################################################
+
+def make_adversarial(n):
     '''
-    Naive recursive Fibonacci.  Exponential; use n <= 30 with timeit.
+    Build a (haystack, needle) pair that is maximally bad for the simple
+    substring search algorithm.
+
+    The haystack is n copies of 'a'.
+    The needle is n//10 characters that are all 'a' except for the final 'b'.
+    There is no match, but every single alignment of the needle against the
+    haystack agrees for n//10 - 1 characters before failing on the last one.
     '''
-    if n < 2:
-        return n
-    return fib_rec(n - 1) + fib_rec(n - 2)
+    m = max(2, n // 10)
+    haystack = 'a' * n
+    needle = 'a' * (m - 1) + 'b'
+    return haystack, needle
 
 
-def try_pass(n):
+def make_random(n):
     '''
-    A loop whose body is wrapped in a try/except with no exception
-    raised on the happy path.  Pre-3.11, every iteration paid a
-    SETUP_FINALLY; post-3.11, the cost is close to zero.
+    Build a (haystack, needle) pair of exactly the same sizes as
+    make_adversarial, but with random letters.
+
+    There is (almost certainly) no match here either, but a mismatch is usually
+    found on the very first character of the needle.
     '''
-    s = 0
-    for i in range(n):
-        try:
-            s += i
-        except ValueError:
-            pass
-    return s
+    m = max(2, n // 10)
+    rng = random.Random(0)
+    haystack = ''.join(rng.choice(ALPHABET) for _ in range(n))
+    needle = ''.join(rng.choice(ALPHABET) for _ in range(m))
+    return haystack, needle
 
 
-# ---------------------------------------------------------------------------
-# += on str and bytes
-# ---------------------------------------------------------------------------
-
-def concat_plus(n):
-    '''Build an n-character string by repeated +=.'''
-    s = ''
-    for _ in range(n):
-        s += 'x'
-    return s
-
-
-def concat_bytes(n):
-    '''Same as concat_plus, but for bytes.'''
-    b = b''
-    for _ in range(n):
-        b += b'x'
-    return b
-
-
-def concat_alias(n):
+def make_adversarial_bytes(n):
     '''
-    Same as concat_plus, but hold a live alias to s inside the
-    body.  The alias forces the refcount at the += site above 1,
-    which defeats the in-place-resize fast path on every version.
-    Negative control for Part 2.
+    The bytes version of make_adversarial.
     '''
-    s = ''
-    keep = None
-    for _ in range(n):
-        keep = s
-        s += 'x'
-    return s
+    haystack, needle = make_adversarial(n)
+    return haystack.encode(), needle.encode()
 
 
-def concat_join(n):
+def find(pair):
     '''
-    Build an n-character string with ''.join.  Expected to be
-    Theta(n) on every version, with no cliff.  Negative control.
+    Search for the needle in the haystack, and report whether it was found.
+
+    The `in` operator, str.find, str.index, str.count, str.replace, and
+    str.split all use the same search routine inside CPython, so timing any one
+    of them tells you about all of them.
     '''
-    return ''.join(['x'] * n)
+    haystack, needle = pair
+    return needle in haystack
 
 
-# ---------------------------------------------------------------------------
-# bigint <-> str
-# ---------------------------------------------------------------------------
+################################################################################
+# summing floats
+################################################################################
 
-def int_to_str_big(N):
-    '''str(2**N); N is the bit length of the input integer.'''
-    return str(2 ** N)
-
-
-def str_to_int_big(N):
-    '''int('9' * N); N is the number of decimal digits.'''
-    return int('9' * N)
+def make_floats(n):
+    rng = random.Random(0)
+    return [rng.random() for _ in range(n)]
 
 
-# ---------------------------------------------------------------------------
-# gcd and modular inverse
-# ---------------------------------------------------------------------------
+def sum_floats(xs):
+    return sum(xs)
 
-def gcd_inputs(N):
+
+def sum_floats_loop(xs):
     '''
-    Return a tuple of two N-bit integers whose gcd is nontrivial.
-    Deterministic so that every version is timed on the same pair
-    (and so that students get the same numbers as each other).
+    The same thing, written out by hand.
     '''
-    d = (1 << (N // 2)) - 1
-    a = ((1 << N) - 1) * d
-    b = ((1 << (N - 1)) - 1) * d
-    return (a, b)
+    total = 0.0
+    for x in xs:
+        total += x
+    return total
 
 
-def gcd_stress(pair):
-    '''math.gcd on a pair built by gcd_inputs.'''
-    a, b = pair
-    return math.gcd(a, b)
+################################################################################
+# converting between ints and strings
+################################################################################
 
-
-def modinv_inputs(N):
+def make_digits(d):
     '''
-    Return (e, phi) with gcd(e, phi) == 1 and both N bits, suitable
-    for modinv_stress.
+    Build a string of d decimal digits.
     '''
-    e = (1 << (N - 1)) | 1
-    phi = 1 << N
-    return (e, phi)
+    rng = random.Random(0)
+    return rng.choice('123456789') + ''.join(
+        rng.choice('0123456789') for _ in range(d - 1))
 
 
-def modinv_stress(pair):
+def make_bigint(d):
     '''
-    pow(e, -1, phi), python 3.8+.  Extended Euclid, i.e. gcd.  This
-    is the operation RSA key generation uses to compute the private
-    exponent d from the public exponent e and Euler's totient phi,
-    and it is therefore on the critical path of every https request.
+    Build an int with d decimal digits.
     '''
-    e, phi = pair
-    return pow(e, -1, phi)
+    return int(make_digits(d))
 
 
-# ---------------------------------------------------------------------------
-# sum of floats
-# ---------------------------------------------------------------------------
-
-def sum_float(n):
-    '''
-    sum([0.1] * n).  Same Theta(n) on every version, but the value
-    changes at the 3.12 boundary, which switched sum() of floats to
-    Neumaier compensated summation.
-    '''
-    return sum([0.1] * n)
+def str_to_int(s):
+    return int(s)
 
 
-def sum_float_cancellation():
-    '''
-    The canonical demonstration of compensated summation: 0.0 on
-    <=3.11, 1.0 on >=3.12.
-    '''
-    return sum([1e16, 1.0, -1e16])
+def int_to_str(x):
+    return str(x)
 
 
-# ---------------------------------------------------------------------------
-# string formatting
-# ---------------------------------------------------------------------------
-
-def fstr(n):
-    '''f-string in a loop.'''
-    x = 42
-    for _ in range(n):
-        s = f'{x}'
-    return s
-
-
-def format_(n):
-    '''str.format in a loop.'''
-    x = 42
-    for _ in range(n):
-        s = '{}'.format(x)
-    return s
-
-
-def pct(n):
-    '''%-formatting in a loop.'''
-    x = 42
-    for _ in range(n):
-        s = '%s' % x
-    return s
-
-
-# ---------------------------------------------------------------------------
-# value report
-# ---------------------------------------------------------------------------
+################################################################################
+# values, not runtimes
+################################################################################
 
 def report_values():
     '''
-    Print the value that each Part 1 function returns on this
-    version of python.  Students run this once per version to fill
-    in the second (value) table in the README.
+    Print the exact value that each of these expressions evaluates to.
+
+    Most of them are the same on every version of python.  The ones that are
+    not are the entire point of this part of the lab.
     '''
-    print('python      =', sys.version.split()[0])
-    print('concat_plus =', repr(concat_plus(5)))
-    print('concat_bytes=', repr(concat_bytes(5)))
-    print('concat_join =', repr(concat_join(5)))
-    print('int_to_str  =', repr(int_to_str_big(64)))
-    print('str_to_int  =', repr(str_to_int_big(20)))
-    print('sum_float   =', repr(sum_float(10)))
-    print('sum_cancel  =', repr(sum_float_cancellation()))
-    print('fstr        =', repr(fstr(1)))
-    print('format_     =', repr(format_(1)))
-    print('pct         =', repr(pct(1)))
-    e, phi = modinv_inputs(16)
-    print('modinv      =', modinv_stress((e, phi)))
+    xs = [0.1] * 10
+    ys = [1e100, 1.0, -1e100, 1.0]
+    zs = [1e100, 1, -1e100, 1]
+    cs = [complex(1e100, 1.0), complex(1.0, 1.0), complex(-1e100, 1.0)]
+    big = make_bigint(10000)
+
+    print('python                      =', sys.version.split()[0])
+    print('sum([0.1]*10)               =', repr(sum(xs)))
+    print('sum_floats_loop([0.1]*10)   =', repr(sum_floats_loop(xs)))
+    print('math.fsum([0.1]*10)         =', repr(math.fsum(xs)))
+    print('sum(ys)                     =', repr(sum(ys)))
+    print('sum_floats_loop(ys)         =', repr(sum_floats_loop(ys)))
+    print('math.fsum(ys)               =', repr(math.fsum(ys)))
+    print('sum(zs)                     =', repr(sum(zs)))
+    print('sum(cs)                     =', repr(sum(cs)))
+    print('int(str(big)) == big        =', repr(int(str(big)) == big))
+    print('len(str(big))               =', repr(len(str(big))))
+    print("'b' in 'a'*1000             =", repr('b' in 'a' * 1000))
+    print("('a'*999+'b') in 'a'*1000   =", repr(('a' * 999 + 'b') in 'a' * 1000))
+
+
+if __name__ == '__main__':
+    report_values()

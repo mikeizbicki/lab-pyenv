@@ -1,5 +1,1 @@
-# Empirical asymptotic-complexity fitting, used in Part 3.
-# Unpinned on purpose: this is a young package and the students
-# should get whatever is current when they run it.  The lab's
-# numbers come from timeit, not from bigO, so drift is tolerable.
 bigO
