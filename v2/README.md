@@ -24,25 +24,54 @@ and one case where the *answer itself* changed.
 1. measure a change in asymptotic runtime instead of reading about it
 1. apply the master theorem to the standard library itself
 
-## Part 0: pyenv
+## Part 0: setup
 
-Fork this repo, clone it on the lambda server, and `cd` into the `v2` folder.
+You're going to need to edit this repo, so:
+Fork this repo, clone the fork, and `cd` into it.
 
-The `pyenv` program installs as many versions of python as you like into your
-home directory, without touching the system python.
-Install the three that this lab needs:
+## Part 1: pyenv
+
+The `pyenv` program lets you use several different versions of python at once.
+It has two main applications:
+1. installing the latest versions of python on any computer, even if you don't have admin (root) permissions;
+2. using an old version of python to run certain projects that only work with old versions of python.
+
+### Part 1a: installing pyenv
+
+Install pyenv with the following command
+```
+$ curl pyenv.run | bash
+```
+> **NOTE:**
+> Recall that:
+> 1. the `curl` command downloads the contents of a webpage and prints it to stdout,
+> 2. the `|` passes the stdout of the left program to the stdin on the right program.
+> So what the command above does is download the contents of the `pyenv.run` webpage and run the commands in `bash` (i.e. the shell).
+> This is a common idiom used for installing programs in the terminal.
+
+If everything worked correctly, you should be able to run
+```
+$ pyenv versions
+* system (set by /home/usertest/.pyenv/version)
+```
+You should see only one line that looks similar (but not identical) to the output above.
+This is the standard system-wide install of python that you have been using throughout this class so far.
+
+You will need two more versions of python for this lab: 3.9 and 3.14.
+Install them with the following commands:
 ```
 $ pyenv install 3.9
 $ pyenv install 3.14
-$ pyenv install 3.14t
 ```
-and check that they are all there:
+Each command takes about 1 minute to run.
+
+Once they finish, you should see these versions listed in the output below.
 ```
 $ pyenv versions
+* system (set by /home/usertest/.pyenv/version)
+  3.9.25
+  3.14.8
 ```
-
-The last one is python 3.14 built in *free-threaded* mode.
-We will not use it until Part 2.
 
 > **NOTE:**
 > Python 3.14 is the "pi-thon" release.
@@ -57,50 +86,47 @@ This folder ships with a `.python-version` pinned to 3.9.
 Switch it like this:
 ```
 $ pyenv local 3.14
-$ python3 -VV
+$ python --version
+Python 3.14.8
+$ pyenv local 3.9
+$ python --version
+Python 3.9.25
 ```
 
-The `-VV` flag prints the full version, including the patch number and the
-date the binary was built.
-**Write down the exact output of `python3 -VV` for each of your three
-installs.**
-You will put these at the top of your tables.
-Patch numbers matter in this lab: some of the behavior you are about to
-measure was changed in a patch release and then backported to older versions.
+### Part 1.b: match/case
 
-Now verify that each install really works.
-The file `matchcheck.py` uses the `match` statement, which was added to the
-language in python 3.10:
+Now lets verify that the installed versions actually behave differently.
+
+The file `matchcheck.py` uses the `match` statement, which was added to the language in python 3.10.
+`match` in other languages is often called `switch`,
+and is a short-hand form of repeated if/else statements.
+
+Take a look at the file:
 ```
-$ pyenv local 3.14
-$ python3 matchcheck.py
+$ cat matchcheck.py
+```
+
+And observe that we get a syntax error with python 3.9.
+```
 $ pyenv local 3.9
 $ python3 matchcheck.py
 ```
 
-You should see the second command fail with a `SyntaxError`.
+But if you switch to python 3.14, the program works.
+```
+$ pyenv local 3.14
+$ python3 matchcheck.py
+```
 
-> **NOTE:**
-> Look carefully at *where* it fails.
-> It does not print the version line and then crash;
-> it never runs any code at all.
-> `match` is a change to python's grammar, so python 3.9 cannot even finish
-> reading the file.
-> This is a different kind of incompatibility than the ones you will measure
-> in the rest of the lab, and it is the only kind that is impossible to
-> overlook.
+## Part 2: python versions and runtimes
 
-> **NOTE:**
-> Python 3.9 reached "end of life" in October 2025, which means it receives no
-> more fixes of any kind, including security fixes.
-> Do not ship anything on it.
-> We install it here because it is the most recent version that predates all
-> of the changes we want to look at.
+Newer versions of python don't just add new syntax to python.
+They also change the runtimes.
+Usually the runtimes get faster, but not always.
 
-## Part 1: the table
+In this section of the lab we will empirically observe runtime performance between python 3.9 and 3.14.
 
 The file `algorithms.py` contains the functions you will time.
-Read it before continuing.
 
 Every function takes exactly one argument.
 The functions whose names start with `make_` build the input data, and the
@@ -112,8 +138,6 @@ $ python3 -m timeit \
     -s 'import algorithms; pair = algorithms.make_adversarial(2**13)' \
     'algorithms.find(pair)'
 ```
-
-### 1a: runtimes
 
 Fill in the table below with measured runtimes.
 Report the number that `timeit` prints, including its units.
@@ -134,125 +158,9 @@ Report the number that `timeit` prints, including its units.
 | `int_to_str(make_bigint(10**4))`  |     |      |
 | `int_to_str(make_bigint(10**5))`  |     |      |
 
-> **HINT:**
-> You do not have to run these one at a time.
-> Use a shell `for` loop over `seq`, exactly like in `lab-timeit2`:
-> ```
-> $ for i in $(seq 13 16); do
->     echo "i=$i"
->     python3 -m timeit \
->         -s "import algorithms; pair = algorithms.make_adversarial(2**$i)" \
->         'algorithms.find(pair)'
-> done
-> ```
-
-> **NOTE:**
-> Some of the cells in the 3.9 column will take a long time.
-> If a cell is going to take more than about a minute, you can force `timeit`
-> to do less work with `-n 1 -r 3`, which runs the code once per repeat and
-> repeats three times.
-> If a cell is *still* too slow, write `>60s` in the table and move on.
-
-Now answer these in `NOTES.md`:
-
-1. For `make_adversarial`, how does the runtime change when you double `n`,
-   on each version?  Write down the multiplier you observe.
-   What exponent `k` does that multiplier correspond to, in the sense that
-   runtime grows like $n^k$?
-
-1. For `make_random`, how does the runtime change when you double `n`,
-   on each version?
-
-1. The adversarial and random inputs have exactly the same sizes.
-   They are the same number of characters, and the needle is absent from the
-   haystack in both cases.
-   Why is one of them so much worse than the other on 3.9?
-   (Read the docstring of `make_adversarial` again.)
-
-1. On one version, `find` takes about the same amount of time on both inputs.
-   For a function that has this property, is there any input a hostile user
-   could send you that would make it slow?
-
-> **NOTE:**
-> Here is what changed, which you are not expected to have guessed.
-> Through python 3.9, `str.find` and friends used a simple scanning algorithm
-> with a skip table.  It is very fast on ordinary text and quadratic on
-> repetitive text.
-> Python 3.10 added the Crochemore-Perrin "two-way" algorithm, which is
-> $\Theta(n + m)$ in the *worst* case, where $n$ is the length of the haystack
-> and $m$ is the length of the needle.
-> You will not be asked to learn how it works.
->
-> There is a catch that will bite you if you pick your own values of `n`:
-> the two-way algorithm has a setup cost, so CPython only bothers to use it
-> once the strings are big enough.  The exact cutoff is an implementation
-> detail that has been re-tuned more than once.  For needles shorter than
-> roughly a hundred characters, both versions do the same thing, and the table
-> shows nothing.
-
-### 1b: values
-
-The runtime table cannot show you a change in the *answer*.
-This command prints the answers:
-```
-$ python3 algorithms.py
-```
-
-Run it under each version and fill in the table.
-Copy the values exactly as printed, including every digit.
-
-|                                 | 3.9 | 3.14 |
-| ------------------------------- | --- | ---- |
-| `sum([0.1]*10)`                 |     |      |
-| `sum_floats_loop([0.1]*10)`     |     |      |
-| `math.fsum([0.1]*10)`           |     |      |
-| `sum(ys)`                       |     |      |
-| `sum_floats_loop(ys)`           |     |      |
-| `math.fsum(ys)`                 |     |      |
-| `sum(zs)`                       |     |      |
-| `sum(cs)`                       |     |      |
-| `int(str(big)) == big`          |     |      |
-| `'b' in 'a'*1000`               |     |      |
-| `('a'*999+'b') in 'a'*1000`     |     |      |
-
-Most of these rows are the same in both columns, and that is the normal case:
-the algorithm underneath `in` changed completely between these two versions
-and the answer did not move at all.
-
-For each row that *is* different, write one sentence in `NOTES.md` saying what
-changed.
-
-> **NOTE:**
-> Here is what changed.
-> Adding floating point numbers is not associative: `(a + b) + c` and
-> `a + (b + c)` can give different answers, because each addition rounds.
-> Adding a list of floats left to right accumulates that rounding error.
-> Python 3.12 changed the built-in `sum` to use *Neumaier summation*, which
-> keeps a running correction term for the bits that each addition threw away,
-> and python 3.13 extended it to complex numbers.
-> `math.fsum` has always done something even more careful (and even slower).
->
-> Notice that the `zs` row contains ints mixed in with the floats, and does
-> not change.  `sum` only takes its compensated path when every element is
-> exactly a float; one int in the list and you are back to naive addition.
-> A change in the answer that depends on the *types* in your list is a
-> genuinely unpleasant thing to debug.
-
-Finally, time the sum again on both versions and compare it against the
-timing you already recorded:
-```
-$ python3 -m timeit \
-    -s 'import algorithms; xs = algorithms.make_floats(2**20)' \
-    'algorithms.sum_floats_loop(xs)'
-```
-
-In `NOTES.md`: is `sum` still $\Theta(n)$ on both versions?
-Did the constant factor go up or down?
-Did the hand-written loop's answer change?
-
 ## Part 2: aliasing, reference counts, and the GIL
 
-This part is different from the rest of the lab.
+This section is different from the rest of the lab.
 Everywhere else, the thing that changes is the version of python.
 Here, the thing that changes is **one line in your own code**, and the effect
 is the same on both versions.
@@ -492,60 +400,6 @@ with $a \ge 1$ and $b > 1$.
    $d^{1.585}$.
    Use the same recurrence with $M(d) = \Theta(d \log d)$ and solve it.
    Does this explain why your two measured exponents differ?
-
-1. **Substring search.**
-   Write down the worst-case runtime of the simple search algorithm in terms
-   of $n$ and $m$, and the worst-case runtime of the two-way algorithm.
-   Then explain why the master theorem is of no use here at all.
-
-### 4b: when the master theorem does not apply
-
-Consider this recurrence, which comes from a real and famous problem:
-$$T(n) = 2T(n-1) + O(1)$$
-
-1. Solve it.  (It is not hard; expand it a few times and look at the pattern.)
-
-1. Explain precisely why the master theorem cannot be used on it.
-   State the precondition that it violates.
-
-> **NOTE:**
-> That recurrence is where the runtime of *catastrophic backtracking* comes
-> from.  The regular expression `(a+)+$` matched against `'a'*n + 'b'` has no
-> match, but the engine tries roughly $2^n$ different ways to split the run of
-> `a`'s between the two quantifiers before it gives up.  Doubling `n` squares
-> the runtime.
->
-> Attacks that exploit this are called ReDoS, and they have taken down real
-> services (Stack Overflow in 2016, Cloudflare in 2019).
-> Unlike every other slow thing in this lab, this one was *not* fixed by a new
-> version of python: `(a+)+$` is still exponential on 3.14.
-> You can avoid it by rewriting the pattern, by using the possessive
-> quantifier syntax `(a++)+$` that python 3.11 added, or by using a different
-> regex engine entirely (`re2`, Go's `regexp`, Rust's `regex`), which are
-> built on a different algorithm with a $\Theta(nm)$ worst case.
->
-> Why can't python just switch to that algorithm?  Because python's regex
-> language includes backreferences and lookaround, and those features are not
-> expressible in the faster algorithm at all.  The faster engines do not
-> support them.  Contrast this with `str.find`, whose entire specification is
-> "is this substring in there, and where" -- a specification that says nothing
-> about *how*, which is exactly why 3.10 was free to replace the how.
-
-### 4c: what does the $O(\cdot)$ notation protect you from?
-
-Look at your two `sum` rows: the runtime row from Part 1a and the value rows
-from Part 1b.
-
-Write a paragraph.
-The runtime stayed $\Theta(n)$ and the answer changed.
-What does an asymptotic bound promise you, and what does it say nothing about?
-Name all three things it is silent on that you saw in this lab.
-
-Then answer: if you are writing code where the exact numeric answer matters --
-a simulation, a financial calculation, the coefficients of a polynomial --
-what does this suggest about using `float`?
-What could you use instead that would give you the same answer on every
-version of python, forever?
 
 ## Submission
 
