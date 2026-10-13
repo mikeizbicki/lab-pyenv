@@ -70,12 +70,9 @@ what actually changed between them.
 
 **Learning objectives**
 
-1. install and switch between python minors with `pyenv`
-2. measure runtime with `timeit`
-3. see that CPython guarantees only $O(\cdot)$, never $\Theta(\cdot)$
-4. apply the master theorem to the standard library itself
-5. distinguish "fix by upgrading python" from "fix by choosing a
-   different library"
+1. use `pyenv` to switch between different python versions
+2. observe that CPython guarantees only $O(\cdot)$, never $\Theta(\cdot)$
+3. apply the master theorem to the standard library itself
 
 ## Part 0: pyenv
 
