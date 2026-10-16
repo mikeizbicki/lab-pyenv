@@ -44,7 +44,7 @@ def make_adversarial(n):
     '''
     m = max(2, n // 10)
     haystack = 'a' * n
-    needle = 'a' * (m - 1) + 'b'
+    needle = 'a' * (m - 2) + 'b' + 'a'
     return haystack, needle
 
 
